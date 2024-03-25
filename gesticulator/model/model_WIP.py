@@ -45,7 +45,7 @@ def weights_init_zeros(m):
         nn.init.zeros_(m.bias.data)
         nn.init.zeros_(m.weight.data)
 
-class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
+class GestureMDM(pl.LightningModule, PredictionSavingMixin):
     """
     Our autoregressive model definition.
 
@@ -265,90 +265,17 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
         Returns:
             motion [N, T, D_m]:   a batch of corresponding motion sequences
         """
+        speech = torch.cat((audio, text), 2)
+        speech_encoding_full = self.encode_speech(speech)
+        speech_encoding_concat = torch.flatten(speech_encoding_full, start_dim=1)
+        speech_enc_reduced = self.reduce_speech_enc(speech_encoding_concat)
 
-        # initialize the motion sequence
-        motion_seq = None
-
-        # initialize RNN state if needed
-        if self.hparams.use_recurrent_speech_enc and (not self.rnn_is_initialized or motion is None):
-            self.initialize_rnn_hid_state()
-        # initialize all the previous poses with the mean pose
-        init_poses = np.array([self.hparams.mean_pose for it in range(audio.shape[0])])
-        # we have to put these Tensors to the same device as the model because 
-        # numpy arrays are always on the CPU
-        # store the 3 previous poses
-        prev_poses = [torch.from_numpy(init_poses).to(self.device)] * 3
-        
-        past_context   = self.hparams.past_context
-        future_context = self.hparams.future_context
-        for time_st in range(past_context, audio.shape[1] - future_context):
-            # take current audio and text of the speech
-            curr_audio = audio[:, time_st - past_context:time_st+future_context]
-            curr_text = text[:, time_st-past_context:time_st+future_context]
-            curr_speech = torch.cat((curr_audio, curr_text), 2)
-            # encode speech
-            if self.hparams.use_recurrent_speech_enc:
-                speech_encoding_full, hh = self.encode_speech(curr_speech)
-            else:
-                speech_encoding_full = self.encode_speech(curr_speech)
-
-            speech_encoding_concat = torch.flatten(speech_encoding_full, start_dim=1)
-            speech_enc_reduced = self.reduce_speech_enc(speech_encoding_concat)
-
-            if use_conditioning:
-                # Take several previous poses for conditioning
-                if self.hparams.n_prev_poses == 3:
-                    pose_condition_info = torch.cat((prev_poses[-1], prev_poses[-2],
-                                                     prev_poses[-3]), 1)
-                elif self.hparams.n_prev_poses == 2:
-                    pose_condition_info = torch.cat((prev_poses[-1], prev_poses[-2]), 1)
-                else:
-                    pose_condition_info = prev_poses[-1]
-
-                conditioning_vector_1 = self.conditioning_1(pose_condition_info)
-
-            else:
-                conditioning_vector_1 = None
-
-
-            first_h = self.first_layer(speech_enc_reduced)
-            first_o = self.FiLM(conditioning_vector_1, first_h,
-                                self.hparams.first_l_sz, use_conditioning)
-
-            if self.n_layers == 1:
-                final_h = first_o
-            else:
-                second_h = self.second_layer(first_o)
-
-                if self.n_layers == 2:
-                    final_h = second_h
-                else:
-                    final_h = self.third_layer(second_h)
-            
-            curr_pose = self.hidden_to_output(final_h)
-
-            if motion is not None and use_teacher_forcing and time_st % self.teaching_freq < 2:
-                # teacher forcing
-                prev_poses[-3] = motion[:, time_st - 2, :]
-                prev_poses[-2] = motion[:, time_st - 1, :]
-                prev_poses[-1] = motion[:, time_st, :]
-            else:
-                # no teacher
-                prev_poses[-3] = prev_poses[-2]
-                prev_poses[-2] = prev_poses[-1]
-                prev_poses[-1] = curr_pose
-
-            # add current frame to the total motion sequence
-            if motion_seq is None:
-                motion_seq = curr_pose.unsqueeze(1)
-            else:
-                motion_seq = torch.cat((motion_seq, curr_pose.unsqueeze(1)), 1)               
-
-        # Sanity check
-        if motion_seq is None:
-            print("ERROR: GesticulatorModel.forward() returned None!")
-            print("Possible causes: corrupt dataset or a problem with the environment.")
-            exit(-1)
+        first_h = self.first_layer(speech_enc_reduced)
+        # first_o = self.FiLM(conditioning_vector_1, first_h,
+        #                     self.hparams.first_l_sz, use_conditioning)
+        second_h = self.second_layer(first_h)
+        final_h = self.third_layer(second_h)            
+        motion_seq = self.hidden_to_output(final_h)
 
         return motion_seq
 
@@ -415,11 +342,7 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
         text = batch["text"]
         true_gesture = batch["output"]
 
-        # first decide if we are going to condition
-        if self.current_epoch < self.hparams.n_epochs_with_no_autoregression:
-           use_conditioning = False
-        else:
-           use_conditioning = True
+        use_conditioning = True
 
         # scheduled sampling for teacher forcing
         predicted_gesture = self.forward(audio, text, use_conditioning, true_gesture)

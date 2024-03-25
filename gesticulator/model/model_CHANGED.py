@@ -20,7 +20,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
+from gesticulator.model.diffusion.model_diffusion import create_gaussian_diffusion
+from gesticulator.model.diffusion.resample import ScheduleSampler, UniformSampler, create_named_schedule_sampler
+from gesticulator.model.diffusion.respace import SpacedDiffusion
 
+from gesticulator.utils.modules import positional_encoding
 from model.prediction_saving import PredictionSavingMixin
 from data_processing.SGdataset import SpeechGestureDataset, ValidationDataset
 
@@ -45,7 +49,59 @@ def weights_init_zeros(m):
         nn.init.zeros_(m.bias.data)
         nn.init.zeros_(m.weight.data)
 
-class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
+########## TODO: FIND THE CORRESPONDENT PARAMETERS  ##########
+class MDM(nn.Module):
+    def __init__(self, modeltype, njoints, nfeats, num_actions, translation, pose_rep, glob, glob_rot,
+                 latent_dim=256, ff_size=1024, num_layers=8, num_heads=4, dropout=0.1,
+                 ablation=None, activation="gelu", legacy=False, data_rep='rot6d', dataset='amass', clip_dim=512,
+                 arch='trans_enc', emb_trans_dec=False, clip_version=None, **kargs):
+        super().__init__()
+
+        ## self.legacy = legacy ## We don't care about this
+        ## self.modeltype = modeltype ## I think this is not used
+        ## self.njoints = njoints ## Added
+        ## self.nfeats = nfeats ## Added
+        ## self.num_actions = num_actions ## Not needed. We work with text to motion, no action to motion.
+        ## self.data_rep = data_rep ## data_representation ## Added
+        ## self.dataset = dataset ## We will use trinity
+        
+        '''
+        ## I think this are related to the dataset, and we already have this problem solved.
+        self.pose_rep = pose_rep
+        self.glob = glob
+        self.glob_rot = glob_rot
+        self.translation = translation
+        '''
+
+        ## self.latent_dim = latent_dim ## Added default value
+
+        ## self.ff_size = ff_size
+        self.num_layers = num_layers ## Called n_layers. Modify everything or just the definition? I don't think they are talking about the same layers
+        ## self.num_heads = num_heads
+        ## self.dropout = dropout ## Gesticulator already has it
+
+        ## self.ablation = ablation ## Not used
+        ## self.activation = activation ## Gesticulator already has it
+        self.clip_dim = clip_dim ## I think we should keep the value of gesticulator, since MDM is not using BERT.
+        ## self.action_emb = kargs.get('action_emb', None) ## Not our mode
+
+        ## self.input_feats = self.njoints * self.nfeats + 3 + 6 ## Root offset and angles added ## Added
+
+        ## self.normalize_output = kargs.get('normalize_encoder_output', False) ## I think it is not used
+
+        ## self.cond_mode = kargs.get('cond_mode', 'no_cond') Not needed. It will always be conditioned with text
+        ## self.cond_mask_prob = kargs.get('cond_mask_prob', 0.) ## Added
+        ## self.arch = arch ## Added
+        ## self.gru_emb_dim = self.latent_dim if self.arch == 'gru' else 0 ## Added
+        ## self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
+
+        ## This two Depending on how we put the network is needed or not.
+        self.sequence_pos_encoder = positional_encoding(self.latent_dim, self.dropout) 
+        self.emb_trans_dec = emb_trans_dec
+
+
+################
+class GestureMDM(pl.LightningModule, PredictionSavingMixin):
     """
     Our autoregressive model definition.
 
@@ -64,6 +120,11 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
         """
         super().__init__()
         self.save_hyperparameters(args)
+        ## NEW
+        self.gru_emb_dim = self.latent_dim if self.arch == 'gru' else 0
+        self.poseEmbedding = nn.Linear(self.input_feats, self.latent_dim)
+        if self.data_rep == 'rot_vel':
+            self.velEmbedding = nn.Linear(self.input_feats, self.latent_dim)
 
         if not inference_mode:
             self.create_result_folder()
@@ -79,6 +140,9 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
         self.rnn_is_initialized = False
         self.loss = nn.MSELoss()
         self.teaching_freq = 0
+
+        self.diffusion = create_gaussian_diffusion(args) # Defined here instead of in train.py
+        self.schedule_sampler = UniformSampler(self.diffusion.num_timesteps)
     
     def setup(self, stage):
         """ 
@@ -119,47 +183,54 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
                 else:
                     exit(-1)
 
-    def construct_layers(self, args):
-        """Construct the layers of the model."""
+    def construct_layers(self, args): ## TODO: Replace. --> Done! Solve doubts 
         if args.activation == "LeakyReLU":
             self.activation = nn.LeakyReLU()
         elif args.activation == "TanH":
             self.activation = nn.Tanh()
+        elif args.activation == "gelu":
+            self.activation == nn.GELU()
+        
+        if self.arch == 'trans_enc':
+            print("TRANS_ENC init")
+            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
+                                                              nhead=self.num_heads,
+                                                              dim_feedforward=self.ff_size,
+                                                              dropout=self.dropout,
+                                                              activation=self.activation)
+
+            self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
+                                                         num_layers=self.num_layers)
+        elif self.arch == 'trans_dec':
+            print("TRANS_DEC init")
+            seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=self.latent_dim,
+                                                              nhead=self.num_heads,
+                                                              dim_feedforward=self.ff_size,
+                                                              dropout=self.dropout,
+                                                              activation=self.activation)
+            self.seqTransDecoder = nn.TransformerDecoder(seqTransDecoderLayer,
+                                                         num_layers=self.num_layers)
+        elif self.arch == 'gru':
+            print("GRU init")
+            self.gru = nn.GRU(self.latent_dim, self.latent_dim, num_layers=self.num_layers, batch_first=True)
         else:
-            print(f"ERROR: Unknown activation function '{self.activation}'!")
-            exit(-1)
+            raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
 
-        self.n_layers = args.n_layers
+        self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder) ## Should this go inside the pytorch lightning trainer?
 
-        if self.n_layers == 1:
-            final_hid_l_sz = args.first_l_sz
-        elif self.n_layers == 2:
-            final_hid_l_sz = args.second_l_sz
-        else:
-            final_hid_l_sz = args.third_l_sz
 
-        if args.use_pca:
-            self.output_dim = 12
-        else:
-            self.output_dim = 45
+        self.embed_text = nn.Linear(self.clip_dim, self.latent_dim)
+        print('EMBED TEXT')
+        print('Loading CLIP...')
+        self.clip_version = clip_version
+        self.clip_model = self.load_and_freeze_clip(clip_version)
 
-        if args.text_embedding == "BERT":
-            self.text_dim = 773
-        else:
-            raise "Unknown word embedding"
+        self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints, #### ---> I STOPPED HERE
+                                            self.nfeats)
 
-        # The best model uses just one layer here, but we still define several
-        self.first_layer = nn.Sequential(nn.Linear(args.full_speech_enc_dim, args.first_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
-        self.second_layer = nn.Sequential(nn.Linear(args.first_l_sz, args.second_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
-        self.third_layer = nn.Sequential(nn.Linear(args.second_l_sz, args.third_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
-
-        self.hidden_to_output = nn.Sequential(nn.Linear(final_hid_l_sz, self.output_dim),
-                                              nn.Tanh(), nn.Dropout(args.dropout),
-                                              nn.Linear(self.output_dim, self.output_dim))
-
+        self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
+        
+        ## I think I need to leave this because of how we treat the dataset. 
         # Speech frame-level Encodigs
         if args.use_recurrent_speech_enc:
             self.gru_size = int(args.speech_enc_frame_dim / 2)
@@ -224,9 +295,16 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
             shuffle=False)
 
         return loader
-
-    def configure_optimizers(self):
+    
+    def configure_optimizers(self): ## MODIFIED TO INCLUDE SCHEDULER
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate, weight_decay=self.hparams.weight_decay)
+        
+        # Define scheduler for learning rate
+        #schedule_sampler_type = 'uniform'  # You might want to set this from self.hparams or directly
+        #schedule_sampler = create_named_schedule_sampler(schedule_sampler_type, self.diffusion)
+        
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+
 
     # ----------- Model -----------
 
@@ -413,35 +491,39 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
 
         audio = batch["audio"]
         text = batch["text"]
-        true_gesture = batch["output"]
+        motion = batch["output"]
 
         # first decide if we are going to condition
+        ## TODO: REMOVE self.hparams.n_epochs_with_no_autoregression AND use_conditioning
         if self.current_epoch < self.hparams.n_epochs_with_no_autoregression:
            use_conditioning = False
         else:
            use_conditioning = True
-
-        # scheduled sampling for teacher forcing
-        predicted_gesture = self.forward(audio, text, use_conditioning, true_gesture)
-
-        # remove last frames which had no future info and hence were not predicted
-        true_gesture = true_gesture[:,  
-                       self.hparams.past_context:-self.hparams.future_context]
         
-        # Get training loss
-        mse_loss, vel_loss = self.tr_loss(predicted_gesture, true_gesture)
-        loss = mse_loss + vel_loss
+        #### HERE I SHOULD TRAIN THE DIFFUSION
+        ## ANNEALING
+        # if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps): ## How do I apply the conditions?
+        #     break
 
-        loss_val = loss.unsqueeze(0)
-        mse_loss_val = mse_loss.unsqueeze(0)
-        vel_loss_val = vel_loss.unsqueeze(0)
+        # motion = motion.to(self.device)
+        # cond['y'] = {key: val.to(self.device) if torch.is_tensor(val) else val for key, val in cond['y'].items()}
 
-        tqdm_dict = {"train/full_loss": loss_val,
-                      "train/mse_loss": mse_loss_val,
-                      "train/cont_loss": vel_loss_val}
+
+        t, weights = self.schedule_sampler.sample(batch.shape[0])
+        args_diffusion = {'audio': audio, 'text':text, 'use_conditioning': use_conditioning, 'motion':motion}
+        loss = self.diffusion.training_losses(self, motion, t, args_diffusion)
+        #loss_val = loss['loss'].unsqueeze(0) # Check!
+
+        ###########
+        loss_value = (loss["loss"] * weights).mean()
+        # log_loss_dict(
+        #     self.diffusion, t, {k: v * weights for k, v in loss.items()}
+        # )
+
+        tqdm_dict = {"train/full_loss": loss_value}
 
         output = OrderedDict({
-            'loss': loss,
+            'loss': loss_value, # Check!
             'log': tqdm_dict})
 
         return output
@@ -525,3 +607,20 @@ class GesticulatorModel(pl.LightningModule, PredictionSavingMixin):
         else:
             self.teaching_freq = max(int(self.teaching_freq/2), 2)
             print("Current teacher forcing frequency is: ", self.teaching_freq)
+
+class TimestepEmbedder(nn.Module):
+    def __init__(self, latent_dim, sequence_pos_encoder):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.sequence_pos_encoder = sequence_pos_encoder
+
+        time_embed_dim = self.latent_dim
+        self.time_embed = nn.Sequential(
+            nn.Linear(self.latent_dim, time_embed_dim),
+            nn.SiLU(), ## Sigmoid linear unit.
+            nn.Linear(time_embed_dim, time_embed_dim),
+        )
+
+    def forward(self, timesteps):
+        return self.time_embed(self.sequence_pos_encoder.pe[timesteps]).permute(1, 0, 2)
+    

@@ -31,7 +31,8 @@ def construct_model_config_parser(add_trainer_args = True):
 
     parser.add('--config', '-c', default='config/default_model_config.yaml',
                help='Path to the .yaml config file', is_config_file=True)
-
+    
+    parser.add('--wip', action="store_true")
     # Directories
     parser.add('--data_dir',   '-data',  default='/data/dataset_trinity/processed_data', ## Changed for the redsofa computer
                help='Path to a folder with the dataset')

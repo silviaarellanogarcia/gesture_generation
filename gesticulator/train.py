@@ -11,7 +11,7 @@ from model.model import GesticulatorModel
 from pytorch_lightning import Trainer
 from pytorch_lightning.logging import TensorBoardLogger
 from pytorch_lightning.callbacks.base import Callback
-
+from gesticulator.model.model_WIP import GestureMDM
 from visualization.motion_visualizer.generate_videos import generate_videos
 SEED = 2334
 torch.manual_seed(SEED)
@@ -35,7 +35,10 @@ class ModelSavingCallback(Callback):
 
 def main(hparams):
     ## Create model --> Also creates diffusion model
-    model = GesticulatorModel(hparams)
+    if hparams.wip:
+        model = GestureMDM(hparams)
+    else:
+        model = GesticulatorModel(hparams)
 
     logger = create_logger(model.save_dir)
     callbacks = [ModelSavingCallback()] if hparams.save_model_every_n_epochs > 0 else []
