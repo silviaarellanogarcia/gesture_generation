@@ -88,8 +88,8 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
 
     def load_datasets(self):
         try:
-            self.train_dataset = SpeechGestureDataset(self.hparams.data_dir, self.hparams.use_pca, train=True)
-            self.val_dataset   = SpeechGestureDataset(self.hparams.data_dir, self.hparams.use_pca, train=False)
+            self.train_dataset = SpeechGestureDataset(self.hparams.data_dir, apply_PCA=False, train=True)
+            self.val_dataset   = SpeechGestureDataset(self.hparams.data_dir, apply_PCA=False, train=False)
             self.val_sequence  = ValidationDataset(self.hparams.data_dir, self.hparams.past_context, self.hparams.future_context)
         except FileNotFoundError as err:
             abs_data_dir = os.path.abspath(self.hparams.data_dir)
@@ -138,10 +138,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         else:
             final_hid_l_sz = args.third_l_sz
 
-        if args.use_pca:
-            self.output_dim = 12
-        else:
-            self.output_dim = 45
+        self.output_dim = 45
 
         if args.text_embedding == "BERT":
             self.text_dim = 773
@@ -160,25 +157,10 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
                                               nn.Tanh(), nn.Dropout(args.dropout),
                                               nn.Linear(self.output_dim, self.output_dim))
 
-        # Speech frame-level Encodigs
-        if args.use_recurrent_speech_enc:
-            self.gru_size = int(args.speech_enc_frame_dim / 2)
-            self.gru_seq_l = args.past_context + args.future_context
-            self.hidden = None
-            self.encode_speech = nn.GRU(self.train_dataset.audio_dim + self.text_dim, self.gru_size, 2,
-                                        dropout=args.dropout, bidirectional=True)
-        else:
-            self.encode_speech = nn.Sequential(nn.Linear(self.hparams.audio_dim + self.text_dim,
-                                               args.speech_enc_frame_dim * 2), self.activation,
-                                               nn.Dropout(args.dropout), nn.Linear(args.speech_enc_frame_dim*2,
-                                                                                   args.speech_enc_frame_dim),
-                                               self.activation, nn.Dropout(args.dropout))
-
-        # To reduce deminsionality of the speech encoding
-        self.reduce_speech_enc = nn.Sequential(nn.Linear(int(args.speech_enc_frame_dim * \
-                                                        (args.past_context + args.future_context)),
-                                                         args.full_speech_enc_dim),
-                                               self.activation, nn.Dropout(args.dropout))
+        # Speech Encoding using NN
+        self.encode_speech = nn.Sequential(nn.Linear(self.hparams.audio_dim + self.text_dim, args.full_speech_enc_dim),
+                                            self.activation,
+                                            nn.Dropout(args.dropout))
 
         self.conditioning_1 = nn.Sequential(nn.Linear(self.output_dim * args.n_prev_poses,
                                                 args.first_l_sz * 2), self.activation,
@@ -201,13 +183,6 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
 
     def load_mean_pose(self):
         self.hparams.mean_pose = np.load("./utils/mean_pose.npy")
-
-    def initialize_rnn_hid_state(self):
-        """Initialize the hidden state for the RNN."""
-      
-        self.hidden = torch.ones([4, self.gru_seq_l, self.gru_size], dtype=torch.float32)
-
-        self.rnn_is_initialized = True
 
     def train_dataloader(self):
         loader = torch.utils.data.DataLoader(
@@ -251,7 +226,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
                 self.load_train_or_val_input(self.val_sequence[0])
        
                 
-    def forward(self, audio, text, use_conditioning, motion, use_teacher_forcing=True):
+    def forward(self, audio, text):
         """
         Generate a sequence of gestures based on a sequence of speech features (audio and text)
 
@@ -345,7 +320,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         use_conditioning = True
 
         # scheduled sampling for teacher forcing
-        predicted_gesture = self.forward(audio, text, use_conditioning, true_gesture)
+        predicted_gesture = self.forward(audio, text)
 
         # remove last frames which had no future info and hence were not predicted
         true_gesture = true_gesture[:,  
