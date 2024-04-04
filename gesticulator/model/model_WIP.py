@@ -145,17 +145,15 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         else:
             raise "Unknown word embedding"
 
-        # The best model uses just one layer here, but we still define several
-        self.first_layer = nn.Sequential(nn.Linear(args.full_speech_enc_dim, args.first_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
-        self.second_layer = nn.Sequential(nn.Linear(args.first_l_sz, args.second_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
-        self.third_layer = nn.Sequential(nn.Linear(args.second_l_sz, args.third_l_sz),
-                                         self.activation, nn.Dropout(args.dropout))
+        # Definition of the transformer encoder layer
+        self.transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=args.full_speech_enc_dim,  # Model dimension
+                                                                 nhead=args.num_heads, # Specifies the number of parallel attention layers or heads in the multi-head attention mechanism.
+                                                                 dim_feedforward=args.ff_size,
+                                                                 dropout=args.dropout)
 
-        self.hidden_to_output = nn.Sequential(nn.Linear(final_hid_l_sz, self.output_dim),
-                                              nn.Tanh(), nn.Dropout(args.dropout),
-                                              nn.Linear(self.output_dim, self.output_dim))
+        # Stack all the transformer encoder layers together
+        self.transformer_encoder = nn.TransformerEncoder(self.transformer_encoder_layer, 
+                                                         num_layers=args.n_layers)
 
         # Speech Encoding using NN
         self.encode_speech = nn.Sequential(nn.Linear(self.hparams.audio_dim + self.text_dim, args.full_speech_enc_dim),
@@ -168,12 +166,6 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
 
     def init_layers(self):
         # Use He initialization for most layers
-        self.first_layer.apply(weights_init_he)
-        self.second_layer.apply(weights_init_he)
-        self.third_layer.apply(weights_init_he)
-        self.hidden_to_output.apply(weights_init_he)
-        self.reduce_speech_enc.apply(weights_init_he)
-
         # Initialize conditioning with zeros
         self.conditioning_1.apply(weights_init_zeros)
 
