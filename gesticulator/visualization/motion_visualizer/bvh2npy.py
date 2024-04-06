@@ -1,4 +1,4 @@
-from visualization.motion_visualizer.read_bvh import read_bvh_to_array
+from gesticulator.visualization.motion_visualizer.read_bvh import read_bvh_to_array
 import numpy as np
 import argparse
 

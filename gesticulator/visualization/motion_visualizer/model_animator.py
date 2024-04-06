@@ -106,7 +106,7 @@ def create_video(input_file, output_file, start=-1, end=20, pca=None):
     am.initLines()
 
     anim = am.animate(frames_to_play=skeletons)
-    #anim.save(output_file, writer="ffmpeg", fps=20)
+    anim.save(output_file, writer="ffmpeg", fps=20)
 
 
 if __name__ == "__main__":

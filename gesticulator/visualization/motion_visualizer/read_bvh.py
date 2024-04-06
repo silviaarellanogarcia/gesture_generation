@@ -5,7 +5,7 @@
 # @author: Taras Kucherenko
 
 
-import visualization.motion_visualizer.bvh_helper as BVH
+import gesticulator.visualization.motion_visualizer.bvh_helper as BVH
 
 import numpy as np
 

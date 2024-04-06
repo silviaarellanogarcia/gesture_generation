@@ -5,13 +5,13 @@ from os import path
 
 # ToDo 1: set path to this folder for importing PyMo properly
 
-from visualization.motion_visualizer.bvh2npy import convert_bvh2npy
-from visualization.motion_visualizer.model_animator import create_video
-from visualization.motion_visualizer.convert2bvh import write_bvh
+from gesticulator.visualization.motion_visualizer.bvh2npy import convert_bvh2npy
+from gesticulator.visualization.motion_visualizer.model_animator import create_video
+from gesticulator.visualization.motion_visualizer.convert2bvh import write_bvh
 
-from visualization.pymo.writers import *
+from gesticulator.visualization.pymo.writers import *
 
-def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe_dir):
+def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe_dir, number):
     """
     Create and save a video from the given raw gesture data.
 
@@ -23,7 +23,6 @@ def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe
         start_t:      start time for the video
         end_t:        end time for the video
     """
-
     motion_clip = motion_in # np.expand_dims(motion_in, axis=0)
 
     write_bvh((data_pipe_dir,), # write_bvh expects a tuple
@@ -35,7 +34,8 @@ def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe
     convert_bvh2npy(bvh_file, npy_file)
 
     # Visualize those 3D coordinates
-    #create_video(npy_file, mp4_file, start_t, end_t)
+    if number == 1:
+        create_video(npy_file, mp4_file, start_t, end_t)
 
 def generate_videos(raw_input_folder, output_folder, run_name, data_pipe_dir, start_t=0, end_t=10):
 # Go over all the results we have
@@ -66,10 +66,43 @@ def generate_videos(raw_input_folder, output_folder, run_name, data_pipe_dir, st
                   resulting_video_file,
                   start_t,
                   end_t,
-                  data_pipe_dir)
+                  data_pipe_dir,
+                  number=0)
 
         os.remove(resulting_bvh_file)
         os.remove(resulting_npy_file)
+
+def generate_one_video(raw_input_folder, output_folder, run_name, data_pipe_dir, start_t=0, end_t=10, number=1):
+    # Go over all the results we have
+    # Raw input folder in this case is just one file
+    filename = os.path.basename(raw_input_folder)
+    if os.path.isfile(raw_input_folder):
+        motion = np.load(raw_input_folder)
+    else:
+        error_msg = \
+        f"""The given file does not contain the expected raw data ({filename}),
+        please run `python generate_videos.py --help` for instructions."""
+        
+        raise ValueError(error_msg)
+
+    # shorten
+    motion = motion[:1200]
+
+    resulting_bvh_file   = output_folder + "/" +  filename + ".bvh"
+    resulting_npy_file   = output_folder + "/" + filename +"_3d.npy"
+    resulting_video_file = output_folder + "/" + filename + ".mp4"
+
+    visualize(motion,
+                resulting_bvh_file,
+                resulting_npy_file,
+                resulting_video_file,
+                start_t,
+                end_t,
+                data_pipe_dir,
+                number=1)
+
+    os.remove(resulting_bvh_file)
+    os.remove(resulting_npy_file)
 
 def create_arg_parser():
     parser = argparse.ArgumentParser(description="Generate videos from the motion that is represented by exponential maps")
@@ -89,6 +122,8 @@ def create_arg_parser():
                              the input/output folders for generating the videos can be inferred from this parameter.""")
     parser.add_argument("--data_pipe_dir", "-pipe", type=str, default="../../utils/data_pipe.sav",
                         help="Temporary pipe file used during conversion")
+    parser.add_argument("--number", "-num", type=int, default=0,
+                        help="0 if trying to convert a folder, 1 if trying to convert one specific file")
     
     return parser
 
@@ -104,7 +139,10 @@ if __name__ == "__main__":
         args.output_folder = f"../../../results/{args.run_name}/generated_gestures/test/manually_generated_videos"
         os.makedirs(args.output_folder, exist_ok=True)
 
-    #generate_videos(**vars(args))
+    if args.number ==  0:
+        generate_videos(**vars(args))
+    else:
+        generate_one_video(**vars(args))
    
     """
     # Visualize training data
