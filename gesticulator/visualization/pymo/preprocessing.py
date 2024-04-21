@@ -12,9 +12,9 @@ import scipy.ndimage.filters as filters
 
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from visualization.pymo.rotation_tools import Rotation, euler2expmap, euler2expmap2, expmap2euler, euler_reorder, unroll
-from visualization.pymo.Quaternions import Quaternions
-from visualization.pymo.Pivots import Pivots
+from gesticulator.visualization.pymo.rotation_tools import Rotation, euler2expmap, euler2expmap2, expmap2euler, euler_reorder, unroll
+from gesticulator.visualization.pymo.Quaternions import Quaternions
+from gesticulator.visualization.pymo.Pivots import Pivots
 
 class MocapParameterizer(BaseEstimator, TransformerMixin):
     def __init__(self, param_type = 'euler'):

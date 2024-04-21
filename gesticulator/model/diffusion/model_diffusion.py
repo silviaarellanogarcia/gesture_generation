@@ -1,5 +1,4 @@
 from gesticulator.model.diffusion.respace import SpacedDiffusion, space_timesteps
-from model.model import GesticulatorModel
 import model.diffusion.gaussian_diffusion as gd
 
 # def create_diffusion_model(args, data):

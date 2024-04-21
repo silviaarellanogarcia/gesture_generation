@@ -24,7 +24,7 @@ latent_dim: 256 ## Added default value
 
 # ---- New network architecture parameters ----
 ff_size: 1024 ## At the moment I added the default value. ff refers to feedforward
-num_heads: 4
+num_heads: 3
 
 arch: 'trans_enc'
 cond_mask_prob: 0. ## NEW! Added for training with text.

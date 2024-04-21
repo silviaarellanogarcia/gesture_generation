@@ -11,6 +11,7 @@ from os import path
 from collections import OrderedDict
 import math
 from argparse import ArgumentParser
+import traceback
 import warnings
 
 from shutil import rmtree
@@ -90,7 +91,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         try:
             self.train_dataset = SpeechGestureDataset(self.hparams.data_dir, apply_PCA=False, train=True)
             self.val_dataset   = SpeechGestureDataset(self.hparams.data_dir, apply_PCA=False, train=False)
-            self.val_sequence  = ValidationDataset(self.hparams.data_dir, self.hparams.past_context, self.hparams.future_context)
+            self.val_sequence  = ValidationDataset(self.hparams.data_dir, self.hparams.past_context, self.hparams.future_context, self.save_dir)
         except FileNotFoundError as err:
             abs_data_dir = os.path.abspath(self.hparams.data_dir)
             if not os.path.isdir(abs_data_dir):
@@ -98,6 +99,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
                 print("Please, set the correct path with the --data option!")
             else:
                 print("ERROR: Missing data in the dataset!")
+                traceback.print_exc()
             exit(-1)
     
     def create_result_folder(self):
@@ -146,15 +148,18 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
             raise "Unknown word embedding"
 
         # Definition of the transformer encoder layer
-        self.transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=args.full_speech_enc_dim,  # Model dimension
+        self.transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=837,  # Model dimension
                                                                  nhead=args.num_heads, # Specifies the number of parallel attention layers or heads in the multi-head attention mechanism.
                                                                  dim_feedforward=args.ff_size,
-                                                                 dropout=args.dropout)
+                                                                 dropout=args.dropout,
+                                                                 batch_first=True)
 
         # Stack all the transformer encoder layers together
         self.transformer_encoder = nn.TransformerEncoder(self.transformer_encoder_layer, 
                                                          num_layers=args.n_layers)
-
+        
+        self.hidden_to_output = nn.Linear(837, self.output_dim)
+                                
         # Speech Encoding using NN
         self.encode_speech = nn.Sequential(nn.Linear(self.hparams.audio_dim + self.text_dim, args.full_speech_enc_dim),
                                             self.activation,
@@ -233,16 +238,15 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
             motion [N, T, D_m]:   a batch of corresponding motion sequences
         """
         speech = torch.cat((audio, text), 2)
-        speech_encoding_full = self.encode_speech(speech)
-        speech_encoding_concat = torch.flatten(speech_encoding_full, start_dim=1)
-        speech_enc_reduced = self.reduce_speech_enc(speech_encoding_concat)
+        #speech_encoding_full = self.encode_speech(speech)
+        speech_encoding = self.transformer_encoder(speech)
+        # (64, 230, D) -> (64, 230*D)
+        # speech_encoding_concat = torch.flatten(speech_encoding, start_dim=1)
 
-        first_h = self.first_layer(speech_enc_reduced)
         # first_o = self.FiLM(conditioning_vector_1, first_h,
-        #                     self.hparams.first_l_sz, use_conditioning)
-        second_h = self.second_layer(first_h)
-        final_h = self.third_layer(second_h)            
-        motion_seq = self.hidden_to_output(final_h)
+        #                     self.hparams.first_l_sz, use_conditioning)       
+        # (64, 230*D) -> (64, D_out)
+        motion_seq = self.hidden_to_output(speech_encoding)
 
         return motion_seq
 
@@ -315,8 +319,8 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         predicted_gesture = self.forward(audio, text)
 
         # remove last frames which had no future info and hence were not predicted
-        true_gesture = true_gesture[:,  
-                       self.hparams.past_context:-self.hparams.future_context]
+        # true_gesture = true_gesture[:,  
+        #                self.hparams.past_context:-self.hparams.future_context]
         
         # Get training loss
         mse_loss, vel_loss = self.tr_loss(predicted_gesture, true_gesture)
@@ -351,11 +355,13 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         true_gesture = batch["output"]
 
         # Text on validation sequences without teacher forcing
-        predicted_gesture = self.forward(speech, text, use_conditioning=True, motion = None, use_teacher_forcing=False)
+        #predicted_gesture = self.forward(speech, text, use_conditioning=True, motion = None, use_teacher_forcing=False)
+        predicted_gesture = self.forward(speech, text)
 
         # remove last frame which had no future info
-        true_gesture = true_gesture[:,
-                       self.hparams.past_context:-self.hparams.future_context]
+        
+        # true_gesture = true_gesture[:,
+        #                self.hparams.past_context:-self.hparams.future_context]
 
         val_loss = self.val_loss(predicted_gesture, true_gesture)
 

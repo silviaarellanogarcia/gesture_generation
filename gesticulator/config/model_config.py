@@ -127,7 +127,8 @@ def construct_model_config_parser(add_trainer_args = True):
                help='If this flag is set, and the given <run_name> directory already exists, '
                     'it will be cleared without displaying any warnings')
     
-    ## TODO: Add network parameters
-
+    ## Network parameters
+    parser.add('--ff_size', '-ff_size',  default=1024, type=int,   help='Feedforward size')
+    parser.add('--num_heads', '-heads',  default=3, type=int,   help='Number of heads')
 
     return parser

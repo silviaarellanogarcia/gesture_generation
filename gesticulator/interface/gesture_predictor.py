@@ -65,7 +65,8 @@ class GesturePredictor:
         # Add batch dimension
         audio, text = audio.unsqueeze(0), text.unsqueeze(0)
 
-        predicted_motion = self.model.forward(audio, text, use_conditioning=True, motion=None)
+        #predicted_motion = self.model.forward(audio, text, use_conditioning=True, motion=None)
+        predicted_motion = self.model.forward(audio, text)
  
         return predicted_motion
 

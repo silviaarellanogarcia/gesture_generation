@@ -11,7 +11,7 @@ from gesticulator.visualization.motion_visualizer.convert2bvh import write_bvh
 
 from gesticulator.visualization.pymo.writers import *
 
-def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe_dir, number):
+def visualize(motion_in, bvh_file, npy_file, mp4_file, start_t, end_t, data_pipe_dir, number=0):
     """
     Create and save a video from the given raw gesture data.
 

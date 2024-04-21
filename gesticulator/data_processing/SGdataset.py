@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 import random
+from pydub import AudioSegment
 
 from sklearn.decomposition import PCA
 
@@ -62,7 +63,7 @@ class SpeechGestureDataset(Dataset):
 class ValidationDataset(Dataset):
     """Validation samples from the Trinity Speech-Gesture Dataset."""
 
-    def __init__(self, root_dir, past_context, future_context):
+    def __init__(self, root_dir, past_context, future_context, save_dir):
         """
         Args:
             root_dir (string): Directory with the datasat.
@@ -82,6 +83,13 @@ class ValidationDataset(Dataset):
         self.start_times = [start_time]
         self.end_times = [start_time + 15]
 
+        real_start_time = self.ConvertFrameToTime(start_time)
+        real_finish_time = self.ConvertFrameToTime(start_time + 15)
+        newAudio = AudioSegment.from_wav("/data/dataset_trinity/raw_data/Audio/NaturalTalking_001.wav")
+        newAudio = newAudio[real_start_time*1000:real_finish_time*1000]
+        output_dir = '../results/last_run_audios/'
+        newAudio.export(path.join(output_dir, f'Val_NaturalTalking_001_{start_time}.wav'), format="wav") #Exports to a wav file in the current path.
+
         self.audio_dim = self[0]['audio'].shape[-1]
 
     def __len__(self):
@@ -97,3 +105,9 @@ class ValidationDataset(Dataset):
         sample = {'audio': audio, 'text': text}
 
         return sample
+    
+    def ConvertFrameToTime(self, frame):
+        # 0.2 is the length of the frame
+        # 0.1 is the "overlapping" between frames
+        time = frame * 0.02 - frame * 0.01
+        return time

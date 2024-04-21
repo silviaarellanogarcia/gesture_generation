@@ -1,6 +1,6 @@
 import numpy as np
 
-from visualization.pymo.Quaternions import Quaternions
+from gesticulator.visualization.pymo.Quaternions import Quaternions
 
 class Pivots:    
     """

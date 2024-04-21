@@ -12,6 +12,7 @@
             "cwd": "${fileDirname}",
             "console": "integratedTerminal",
             "justMyCode": true,
+            "args": ["--wip"]
         }
     ]
 }

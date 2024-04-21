@@ -69,9 +69,9 @@ class PredictionSavingMixin(ABC):
         """Predict gestures for the training input and save the results."""
         predicted_gestures = self.forward(
             audio = self.train_input['audio'],
-            text = self.train_input['text'],
-            use_conditioning=True, 
-            motion=None).cpu().detach().numpy()
+            text = self.train_input['text']).cpu().detach().numpy()
+            #use_conditioning=True, 
+            #motion=None).cpu().detach().numpy()
 
         if self.hparams.use_pca:
             pca = load('utils/pca_model_12.joblib')
@@ -84,9 +84,9 @@ class PredictionSavingMixin(ABC):
         """Predict gestures for the validation input and save the results."""
         predicted_gestures = self.forward(
             audio = self.val_input['audio'],
-            text = self.val_input['text'],
-            use_conditioning=True, 
-            motion=None).cpu().detach().numpy()
+            text = self.val_input['text']).cpu().detach().numpy()
+            # use_conditioning=True, 
+            #motion=None).cpu().detach().numpy()
 
         if self.hparams.use_pca:
             pca = load('utils/pca_model_12.joblib')
@@ -135,9 +135,9 @@ class PredictionSavingMixin(ABC):
                 audio = audio_full[start_frame:end_frame].unsqueeze(0) 
                 text = text_full[start_frame:end_frame].unsqueeze(0)
                 
-                predicted_gestures = self.forward(
-                    audio, text, use_conditioning=True, 
-                    motion=None).cpu().detach().numpy()
+                predicted_gestures = self.forward(audio, text).cpu().detach().numpy()
+                    # audio, text, use_conditioning=True, 
+                    # motion=None).cpu().detach().numpy()
 
                 if self.hparams.use_pca:
                     pca = load('utils/pca_model_12.joblib')
@@ -225,7 +225,8 @@ class PredictionSavingMixin(ABC):
             npy_file = get_save_path("3d_coordinates"),
             start_t = 0, 
             end_t = self.hparams.saved_prediction_duration_sec,
-            data_pipe_dir = data_pipe)
+            data_pipe_dir = data_pipe,
+            number=0)
 
         # Clean up the temporary files
         for temp_file in disabled_save_paths.values():
