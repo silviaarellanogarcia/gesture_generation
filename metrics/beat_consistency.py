@@ -2,6 +2,7 @@ import sys
 import librosa
 import librosa.display
 import numpy as np
+import os
 
 ## BEAT EXTRACTION CODE 
 # Using the Librosa Library: https://librosa.org/doc/0.10.1/generated/librosa.beat.beat_track.html
@@ -15,7 +16,7 @@ def beat_extraction(audio_file_path=''):
         print("ERROR: The audio file has not been specified!!")
         return
     
-    y, sr = librosa.load(audio_file_path, duration=15.0) # y represents the audio samples and sr is the sampling rate
+    y, sr = librosa.load(audio_file_path) # y represents the audio samples and sr is the sampling rate
 
     # Calculate tempo and beats
     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
@@ -165,16 +166,69 @@ def ComputeAngleChangeRate(frames):
 
     return angle_change_rate
 
+def compute_values_above_percentile(data, percentile_num):
+    """
+    Computes the values that are above a certain percentile, which works as threshold
+    """
+    percentile = np.percentile(data, percentile_num)
+    # print("Threshold value:", percentile)
+
+    # Find values that are above the specified percentile
+    above_percentile_values = [value for value in data if value > percentile]
+
+    # Set to zero the other values
+    zeroed_data = [value if value >= percentile else 0 for value in data]
+
+    return percentile, above_percentile_values, zeroed_data
+
+def time_to_frame(time_value):
+    """
+    Convert a specific time value to frame number
+    """
+    return round(time_value / 0.05)
+
+def find_nearest_nonzero_element_index(zeroed_kinematic_beats, target_time_audio):
+    """
+    Finds the kinematic beat that happens closer in time to an audio beat.
+    Input:
+        zeroed_kinematic_beats: array with the angle difference per frame. The values below the threshold specified earlier are set to zero.
+        target_time_audio: time in seconds of an specific audio beat
+    Outputs:
+        nearest_index: frame number of the motion beat closer to the specific audio beat
+        nearest_index*0.05: moment in time when the closest audio beat takes place.
+    """
+    frame_audio_beat = time_to_frame(target_time_audio)
+    nonzero_frames = np.nonzero(zeroed_kinematic_beats)[0]  # Get indices of non-zero elements
+    nearest_index = nonzero_frames[np.argmin(np.abs(nonzero_frames - frame_audio_beat))]  # Find index closest to target
+    return nearest_index, nearest_index*0.05
+
+def beat_consistency(angle_change_rate, beat_times, percentile_num, sigma):
+    _, _, zeroed_data = compute_values_above_percentile(angle_change_rate, percentile_num)
+
+    beat_cons = 0
+    for b in beat_times:
+        _, nearest_motion_t = find_nearest_nonzero_element_index(zeroed_data, b)
+        beat_cons += np.exp(-(np.abs(nearest_motion_t - b) ** 2) / (2 * (sigma ** 2)))
+    
+    beat_cons /= len(beat_times)
+
+    return  beat_cons
+
 if __name__ == "__main__":
     if len(sys.argv) < 1:
         print(
-            "usage: python beat_consistency.py <path to BVH file>"
+            "usage: python beat_consistency.py <path to BVH file> <path to audio file>"
         )
         sys.exit(0)
 
     bvh_file_path = sys.argv[1]
+    audio_path = sys.argv[2]
+    sigma = 0.1
+    percentile_num = 60
+
     frames = parse_bvh_file(bvh_file_path)[1]
     angle_change_rate = ComputeAngleChangeRate(frames)
+    beat_times = beat_extraction(audio_path)
+    beat_consistency = beat_consistency(angle_change_rate, beat_times, percentile_num, sigma)
 
-    ## TODO: Compute the threshold for obtaining the local optima of the movements and compute the Beat Consistency Score (eq.11)
-    print(angle_change_rate)
+    print(beat_consistency)

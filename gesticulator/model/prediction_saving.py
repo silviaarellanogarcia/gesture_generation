@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from joblib import load
 
-from visualization.motion_visualizer.generate_videos import visualize
+from gesticulator.visualization.motion_visualizer.generate_videos import visualize
 
 class PredictionSavingMixin(ABC):
     """
