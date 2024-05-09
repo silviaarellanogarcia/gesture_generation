@@ -120,9 +120,12 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
                     rmtree(self.save_dir)
                 else:
                     exit(-1)
-
+    
     def construct_layers(self, args):
         """Construct the layers of the model."""
+        ### Positional encoding
+        self.sequence_pos_encoder = PositionalEncoding(837, 0.2) ## TODO: put the dropout_p_enc in the file
+
         if args.activation == "LeakyReLU":
             self.activation = nn.LeakyReLU()
         elif args.activation == "TanH":
@@ -239,6 +242,8 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         """
         speech = torch.cat((audio, text), 2)
         #speech_encoding_full = self.encode_speech(speech)
+        speech = self.sequence_pos_encoder(speech)
+
         speech_encoding = self.transformer_encoder(speech)
         # (64, 230, D) -> (64, 230*D)
         # speech_encoding_concat = torch.flatten(speech_encoding, start_dim=1)
@@ -289,6 +294,7 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         actual_speed = y[:,1:] - y[:,:-1]
         vel_loss = self.loss(pred_speed, actual_speed)
 
+        ## TODO: INCREASE WEIGHT BY 10
         return [self.loss(y_hat, y), vel_loss * self.hparams.vel_coef]
 
     def val_loss(self, y_hat, y):
@@ -308,7 +314,6 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         Returns:
             logs
         """
-
         audio = batch["audio"]
         text = batch["text"]
         true_gesture = batch["output"]
@@ -421,3 +426,27 @@ class GestureMDM(pl.LightningModule, PredictionSavingMixin):
         else:
             self.teaching_freq = max(int(self.teaching_freq/2), 2)
             print("Current teacher forcing frequency is: ", self.teaching_freq)
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        if d_model % 2 == 0:
+            pe[:, 1::2] = torch.cos(position * div_term)
+        else:
+            pe[:, -1] = 0
+            pe[:, 1:-1:2] = torch.cos(position * div_term[:-1])
+
+        pe = pe.unsqueeze(0).transpose(0, 1)
+
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        # not used in the final model
+        x = x + self.pe[:x.shape[0], :]
+        return self.dropout(x)

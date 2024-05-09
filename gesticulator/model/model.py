@@ -21,8 +21,8 @@ import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
 
-from model.prediction_saving import PredictionSavingMixin
-from data_processing.SGdataset import SpeechGestureDataset, ValidationDataset
+from gesticulator.model.prediction_saving import PredictionSavingMixin
+from gesticulator.data_processing.SGdataset import SpeechGestureDataset, ValidationDataset
 
 warnings.filterwarnings("ignore")
 torch.set_default_tensor_type('torch.FloatTensor')

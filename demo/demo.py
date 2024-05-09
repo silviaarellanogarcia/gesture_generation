@@ -36,8 +36,8 @@ def main(args):
     print("\nGenerated video:", args.video_out)
     
     # Remove temporary files
-    for ext in ["bvh", "npy", "mp4"]:
-        os.remove("temp." + ext)
+    # for ext in ["bvh", "npy", "mp4"]:
+    #     os.remove("temp." + ext)
 
 def check_feature_type(model_file):
     """

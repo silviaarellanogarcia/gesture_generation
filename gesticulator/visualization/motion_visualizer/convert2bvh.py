@@ -8,7 +8,7 @@ import joblib
 
 
 def write_bvh(datapipe_file, anim_clip, filename, fps):
-    data_pipeline = joblib.load(datapipe_file[0]) # The 0 may need to be removed if I just want to convert from npy to bvh
+    data_pipeline = joblib.load(datapipe_file[0]) # The [0] may need to be removed if I just want to convert from npy to bvh
     inv_data = data_pipeline.inverse_transform(anim_clip)
     writer = BVHWriter()
     for i in range(0, anim_clip.shape[0]):

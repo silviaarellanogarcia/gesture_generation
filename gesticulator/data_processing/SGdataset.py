@@ -79,7 +79,7 @@ class ValidationDataset(Dataset):
         self.text = self.text[cols,:]
 
         # evaluate on random times
-        start_time = random.randint(30, 100)
+        start_time =  50 #random.randint(30, 100)
         self.start_times = [start_time]
         self.end_times = [start_time + 15]
 
